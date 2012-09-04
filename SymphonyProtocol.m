@@ -142,7 +142,7 @@ classdef SymphonyProtocol < handle & matlab.mixin.Copyable
             
             % Create a new epoch.
             obj.epochNum = obj.epochNum + 1;
-            obj.epoch = Epoch(obj.identifier);
+            obj.epoch = Symphony.Core.Epoch(obj.identifier);
 
             % Add any keywords specified by the user.
             for i = 1:length(obj.epochKeywords)
