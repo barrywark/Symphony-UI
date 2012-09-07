@@ -18,7 +18,6 @@ function addSymphonyFramework()
             symphonyPath = 'C:\Program Files\Physion\Symphony\bin';
         end
         
-        symphonyPath = 'C:\Users\Barry Wark\symphony\Symphony\Debug';
 
         % Add Symphony.Core assemblies
         NET.addAssembly(fullfile(symphonyPath, 'Symphony.Core.dll'));
