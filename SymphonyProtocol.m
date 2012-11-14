@@ -269,7 +269,10 @@ classdef SymphonyProtocol < handle & matlab.mixin.Copyable
         function setDeviceBackground(obj, deviceName, background, units)
             % Set a constant stimulus value to be sent to the device.
             
+            import Symphony.*;
             import Symphony.Core.*;
+            import Symphony.ExternalDevices.*;
+            import Symphony.ExternalDevices.OperatingMode.*;
             
             device = obj.rigConfig.deviceWithName(deviceName);
             if isempty(device)
@@ -277,16 +280,37 @@ classdef SymphonyProtocol < handle & matlab.mixin.Copyable
             end
             
             if nargin == 4
+                % The user supplied the quantity and units.
                 background = Measurement(background, units);
             elseif isnumeric(background)
+                % The user only supplied the quantity, assume volts.
                 background = Measurement(background, 'V');
             elseif ~isa(background, 'Symphony.Core.Measurement')
                 error('Symphony:InvalidBackground', 'The background value for a device must be a number or a Symphony.Core.Measurement');
             end
             
-            device.Background = background;
-            if ~isempty(obj.epoch)
-                obj.epoch.SetBackground(device, background, obj.deviceSampleRate(device, 'OUT'));
+            if isa(device, 'Symphony.ExternalDevices.MultiClampDevice')
+                % Set the background for the appropriate mode and for the device if the current mode matches.
+                if strcmp(char(background.BaseUnit), 'V')
+                    fprintf('Setting VClamp background for %s to %s %s\n', char(device.Name), char(background.Quantity.ToString()), char(background.DisplayUnit));
+                    device.SetBackgroundForMode(Symphony.ExternalDevices.OperatingMode.VClamp, background);
+                    setBackground = strcmp(obj.multiClampMode, 'VClamp');
+                else
+                    fprintf('Setting IClamp background for %s to %s %s\n', char(device.Name), char(background.Quantity.ToString()), char(background.DisplayUnit));
+                    device.SetBackgroundForMode(Symphony.ExternalDevices.OperatingMode.IClamp, background);
+                    fprintf('Setting I0 background for %s to %s %s\n', char(device.Name), char(background.Quantity.ToString()), char(background.DisplayUnit));
+                    device.SetBackgroundForMode(Symphony.ExternalDevices.OperatingMode.I0, background);
+                    setBackground = ~strcmp(obj.multiClampMode, 'VClamp');
+                end
+            else
+                fprintf('Setting background for %s to %s %s\n', char(device.Name), char(background.Quantity.ToString()), char(background.DisplayUnit));
+                device.Background = background;
+                setBackground = true;
+            end
+            if setBackground
+                if ~isempty(obj.epoch)
+                    obj.epoch.SetBackground(device, background, obj.deviceSampleRate(device, 'OUT'));
+                end
             end
         end
         
@@ -382,11 +406,15 @@ classdef SymphonyProtocol < handle & matlab.mixin.Copyable
                 obj.setState('running');
                 
                 % Loop until the protocol or the user tells us to stop.
+                tic
                 while obj.continueRun()
+                    fprintf('continueRun took %g seconds\n', toc);
                     % Run a single epoch.
                     
                     % Prepare the epoch: set backgrounds, add stimuli, record responses, add parameters, etc.
+                    tic;
                     obj.prepareEpoch();
+                    fprintf('prepareEpoch took %g seconds\n', toc);
                     
                     % Persist the params now that the sub-class has had a chance to tweak them.
                     pluginParams = obj.parameters(true);
@@ -405,7 +433,9 @@ classdef SymphonyProtocol < handle & matlab.mixin.Copyable
                     
                     try
                         % Tell the Symphony framework to run the epoch.
+                        tic
                         obj.rigConfig.controller.RunEpoch(obj.epoch, obj.persistor);
+                        fprintf('RunEpoch took %g seconds\n', toc);
                     catch e
                         % TODO: is it OK to hold up the run with the error dialog or should errors be logged and displayed at the end?
                         message = ['An error occurred while running the protocol.' char(10) char(10)];
@@ -418,10 +448,14 @@ classdef SymphonyProtocol < handle & matlab.mixin.Copyable
                     end
                     
                     % Perform any post-epoch analysis, clean up, etc.
+                    tic
                     obj.completeEpoch();
+                    fprintf('completeEpoch took %g seconds\n', toc);
                     
                     % Force any figures to redraw and any events (clicking the Pause or Stop buttons in particular) to get processed.
                     drawnow;
+                    
+                    tic
                 end
             catch e
                 waitfor(errordlg(['An error occurred while running the protocol.' char(10) char(10) getReport(e, 'extended', 'hyperlinks', 'off')]));
